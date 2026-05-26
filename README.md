@@ -1,6 +1,8 @@
 # Spoiler Senser
 
-Spoiler Senser is a Devvit moderation app that detects likely spoilers in new posts and comments.
+> This was a submission to the Reddit Mod Tools and Migrated Apps Hackathon
+
+Spoiler Senser is a Devvit moderation app that detects likely spoilers of Anime, TV Shows, Books in new posts and comments.
 
 ## What it does
 

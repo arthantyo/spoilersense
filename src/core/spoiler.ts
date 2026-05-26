@@ -266,6 +266,7 @@ export const analyzeSpoilerRisk = async (
   if (!apiKey) {
     return {
       ...byHeuristic,
+      recommended_action: getNormalizedAction(byHeuristic, content.kind),
       reasoning: `${byHeuristic.reasoning} (No LLM key configured, fallback mode.)`,
     };
   }
@@ -280,6 +281,7 @@ export const analyzeSpoilerRisk = async (
     console.error('Spoiler LLM failed, using heuristic classifier.', error);
     return {
       ...byHeuristic,
+      recommended_action: getNormalizedAction(byHeuristic, content.kind),
       reasoning: `${byHeuristic.reasoning} (LLM unavailable, fallback mode.)`,
     };
   }

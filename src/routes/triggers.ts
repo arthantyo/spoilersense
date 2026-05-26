@@ -5,7 +5,7 @@ import type {
   OnPostCreateRequest,
   TriggerResponse,
 } from '@devvit/web/shared';
-import { reddit, settings } from '@devvit/web/server';
+import { Post, reddit, settings } from '@devvit/web/server';
 import { isT1, isT3, isT5 } from '@devvit/shared-types/tid.js';
 import {
   analyzeSpoilerRisk,
@@ -14,6 +14,18 @@ import {
 } from '../core/spoiler';
 
 export const triggers = new Hono();
+
+const appComment = async (text: string, post: Post) => {
+  try {
+    const modComment = await post.addComment({
+      text,
+    });
+    await modComment.distinguish(true);
+    await modComment.lock();
+  } catch (err) {
+    console.error('Failed to add or lock moderation comment:', err);
+  }
+};
 
 const buildModAlertMarkdown = (props: {
   kind: 'post' | 'comment';
@@ -27,6 +39,11 @@ const buildModAlertMarkdown = (props: {
     `Author: u/${props.authorName ?? 'unknown'}`,
     `Link: ${props.permalink ?? 'unknown'}`,
     '',
+    'Moderation actions:',
+    props.permalink
+      ? `- Delete spoiler: open ${props.permalink} and remove the ${props.kind}.`
+      : `- Delete spoiler: open the ${props.kind} in Reddit and remove it.`,
+    '',
     'Classifier output:',
     '```json',
     formatSpoilerDecision(props.decision),
@@ -36,15 +53,7 @@ const buildModAlertMarkdown = (props: {
   return lines.join('\n');
 };
 
-const warnMessage = (decision: SpoilerDecision) =>
-  [
-    'Heads up: your content may include spoilers.',
-    '',
-    "Please mark spoiler-sensitive content clearly to avoid ruining other users' experience.",
-    '',
-    `Detected type: ${decision.spoiler_type}`,
-    `Risk level: ${decision.risk_level}`,
-  ].join('\n');
+// No public user-facing warning comments: posts are flagged as spoiler and comments are collapsed.
 
 const shouldTreatAsSpoiler = (decision: SpoilerDecision) =>
   decision.spoiler_type !== 'none' || decision.risk_level !== 'LOW';
@@ -56,6 +65,14 @@ const maybeNotifyMods = async (props: {
   permalink?: string;
   decision: SpoilerDecision;
 }) => {
+  // Skip alerts if the app already removed the content
+  if (props.decision.recommended_action === 'remove') {
+    console.log(
+      `[SpoilerSenser] Skipping alert for ${props.kind} by u/${props.authorName}; content was removed by app.`
+    );
+    return;
+  }
+
   const rawAlertMode = await settings.get('alertMode');
   // Coerce alertMode to a string. Devvit returns select values as arrays like ["both"].
   let alertMode: string;
@@ -162,11 +179,25 @@ const maybeNotifyMods = async (props: {
   }
 };
 
-const isAppAuthored = async (authorName?: string): Promise<boolean> => {
+const isAppAuthored = async (
+  authorName?: string,
+  body?: string
+): Promise<boolean> => {
   if (!authorName) {
     return false;
   }
 
+  // Direct check: if the author is literally the app itself
+  if (authorName.toLowerCase() === 'spoiler-sense') {
+    return true;
+  }
+
+  // Also skip if body contains the app's warning message signature
+  if (body && body.includes('Please mark spoiler-sensitive content clearly')) {
+    return true;
+  }
+
+  // Fallback: check username directly
   const appUser = await reddit.getCurrentUser();
   if (!appUser) {
     return false;
@@ -196,7 +227,7 @@ triggers.post('/on-post-create', async (c) => {
 
   try {
     const post = await reddit.getPostById(postId);
-    if (await isAppAuthored(post.authorName)) {
+    if (await isAppAuthored(post.authorName, post.body)) {
       return c.json<TriggerResponse>({ status: 'success' }, 200);
     }
 
@@ -221,13 +252,29 @@ triggers.post('/on-post-create', async (c) => {
 
     switch (decision.recommended_action) {
       case 'warn_user':
-        await post.addComment({ text: warnMessage(decision) });
+        if (decision.risk_level === 'MEDIUM') {
+          if (!post.spoiler) {
+            await post.markAsSpoiler();
+          }
+        } else if (decision.risk_level === 'HIGH') {
+          await post.filter(decision.reasoning, true);
+        }
+
+        appComment(
+          `Hi u/${post.authorName}, our spoiler classifier has detected potential spoilers in your post. We've marked it as a spoiler just in case, but if you intended to include spoilers, please make sure to mark them clearly in the future. Thanks!`,
+          post
+        );
         break;
       case 'collapse':
         await post.filter(decision.reasoning, true);
         break;
       case 'send_to_modqueue':
         await post.filter(decision.reasoning, false);
+
+        await appComment(
+          `Hi u/${post.authorName}, our spoiler classifier has detected potential spoilers in your post. We've sent it to the mods for review. If you included spoilers, please make sure to mark them clearly in the future to avoid removal. Thanks!`,
+          post
+        );
         break;
       case 'remove':
         await post.remove(false);
@@ -260,7 +307,7 @@ triggers.post('/on-comment-create', async (c) => {
 
   try {
     const comment = await reddit.getCommentById(commentId);
-    if (await isAppAuthored(comment.authorName)) {
+    if (await isAppAuthored(comment.authorName, comment.body)) {
       return c.json<TriggerResponse>({ status: 'success' }, 200);
     }
 
@@ -280,7 +327,9 @@ triggers.post('/on-comment-create', async (c) => {
 
     switch (decision.recommended_action) {
       case 'warn_user':
-        await comment.reply({ text: warnMessage(decision) });
+        if (decision.risk_level === 'MEDIUM') {
+          await comment.filter(decision.reasoning, true);
+        }
         break;
       case 'collapse':
         await comment.filter(decision.reasoning, true);

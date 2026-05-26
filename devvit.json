@@ -1,6 +1,6 @@
 {
   "$schema": "https://developers.reddit.com/schema/config-file.v1.json",
-  "name": "modhackathon",
+  "name": "spoiler-sense",
   "server": {
     "dir": "dist/server",
     "entry": "index.cjs"
@@ -10,6 +10,16 @@
     "onPostCreate": "/internal/triggers/on-post-create",
     "onCommentCreate": "/internal/triggers/on-comment-create"
   },
+  "menu": {
+    "items": [
+      {
+        "label": "Delete spoiler comments",
+        "endpoint": "/internal/menu/delete-spoiler",
+        "location": "comment",
+        "forUserType": "moderator"
+      }
+    ]
+  },
   "scripts": {
     "build": "vite build",
     "dev": "vite build --watch"
@@ -18,11 +28,7 @@
     "reddit": true,
     "http": {
       "enable": true,
-      "domains": [
-        "api.openai.com",
-        "discord.com",
-        "discordapp.com"
-      ]
+      "domains": ["api.openai.com", "discord.com", "discordapp.com"]
     }
   },
   "settings": {
@@ -66,6 +72,6 @@
     }
   },
   "dev": {
-    "subreddit": "modhackathon_dev"
+    "subreddit": "spoiler_sense_dev"
   }
 }
