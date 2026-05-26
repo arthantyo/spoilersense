@@ -1,0 +1,71 @@
+{
+  "$schema": "https://developers.reddit.com/schema/config-file.v1.json",
+  "name": "modhackathon",
+  "server": {
+    "dir": "dist/server",
+    "entry": "index.cjs"
+  },
+  "triggers": {
+    "onAppInstall": "/internal/triggers/on-app-install",
+    "onPostCreate": "/internal/triggers/on-post-create",
+    "onCommentCreate": "/internal/triggers/on-comment-create"
+  },
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite build --watch"
+  },
+  "permissions": {
+    "reddit": true,
+    "http": {
+      "enable": true,
+      "domains": [
+        "api.openai.com",
+        "discord.com",
+        "discordapp.com"
+      ]
+    }
+  },
+  "settings": {
+    "subreddit": {
+      "spoilerLlmApiKey": {
+        "type": "string",
+        "label": "Spoiler LLM API Key",
+        "helpText": "Per-subreddit OpenAI API key."
+      },
+      "spoilerLlmModel": {
+        "type": "string",
+        "label": "Spoiler LLM Model",
+        "helpText": "OpenAI chat model name, e.g. gpt-4o-mini.",
+        "defaultValue": "gpt-4o-mini"
+      },
+      "alertMode": {
+        "type": "select",
+        "label": "Alert mode",
+        "helpText": "Choose where spoiler alerts are sent.",
+        "options": [
+          {
+            "label": "Modmail only",
+            "value": "modmail"
+          },
+          {
+            "label": "Discord only",
+            "value": "discord"
+          },
+          {
+            "label": "Both Modmail and Discord",
+            "value": "both"
+          }
+        ],
+        "defaultValue": "both"
+      },
+      "alertDiscordWebhookUrl": {
+        "type": "string",
+        "label": "Discord webhook URL",
+        "helpText": "Per-subreddit Discord webhook for spoiler alerts (used in discord/both modes)."
+      }
+    }
+  },
+  "dev": {
+    "subreddit": "modhackathon_dev"
+  }
+}
