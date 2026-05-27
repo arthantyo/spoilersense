@@ -375,6 +375,13 @@ triggers.post('/on-comment-create', async (c) => {
         if (decision.risk_level === 'MEDIUM') {
           await comment.filter(decision.reasoning, true);
         }
+
+        const modComment = await comment.reply({
+          text: `Hi u/${post.authorName}, our spoiler classifier has detected potential spoilers in your comment. Please make sure to mark them clearly in the future to avoid removal. Thanks!`,
+        });
+
+        modComment.distinguish(true);
+        modComment.lock();
         break;
       case 'collapse':
         await comment.filter(decision.reasoning, true);

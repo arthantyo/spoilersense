@@ -10,16 +10,6 @@
     "onPostCreate": "/internal/triggers/on-post-create",
     "onCommentCreate": "/internal/triggers/on-comment-create"
   },
-  "menu": {
-    "items": [
-      {
-        "label": "Delete spoiler comments",
-        "endpoint": "/internal/menu/delete-spoiler",
-        "location": "comment",
-        "forUserType": "moderator"
-      }
-    ]
-  },
   "scripts": {
     "build": "vite build",
     "dev": "vite build --watch"

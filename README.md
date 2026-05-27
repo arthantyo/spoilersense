@@ -36,7 +36,7 @@ Spoiler Senser is a Devvit moderation app that detects likely spoilers of Anime,
   - `alertDiscordWebhookUrl` (per-subreddit webhook; required for Discord modes)
   - `alertSlackWebhookUrl` (per-subreddit webhook; required for Slack mode)
 
-If no API key is configured, Spoiler Senser still runs in fallback heuristic mode.
+If no API key is configured, Spoiler Senser still runs in fallback heuristic mode (not effective).
 
 # Heuristics
 
@@ -50,12 +50,3 @@ If no API key is configured, Spoiler Senser still runs in fallback heuristic mod
 - Aggregation: We aggregate chunk/excerpt decisions by taking the most severe risk_level / visibility_risk / recommended_action and merging reasoning; spoiler type chosen by priority.
 - Normalization & platform limits: Final recommended_action is normalized for post vs comment contexts (e.g., different visibility actions). We respect limits: title 300 chars, post body 40000, comment fallback used for shorter thresholds.
 - Fast-paths & efficiency: Pure-speculation -> LOW short-circuit; explicit-confirmation + reveal -> immediate HIGH/remove short-circuit; sampling plus signal-priority keeps LLM calls low.
-
-## Fetch Domains
-
-The following domains are requested for this app:
-
-- `api.openai.com` - Used by the server-side spoiler classifier to call OpenAI chat completions.
-- `discord.com` - Used to send moderator alert webhooks when `alertMode` includes Discord.
-- `discordapp.com` - Backward-compatible Discord webhook host support.
-- `hooks.slack.com` - Used to send moderator alert webhooks when `alertMode` includes Slack.

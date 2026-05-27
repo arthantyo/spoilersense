@@ -11,6 +11,7 @@
     "launch": "npm run deploy && devvit publish",
     "lint": "eslint 'src/**/*.{ts,tsx}'",
     "login": "devvit login",
+    "publish:devvit": "devvit publish",
     "prettier": "prettier --write .",
     "type-check": "tsc --build"
   },
