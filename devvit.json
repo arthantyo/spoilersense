@@ -30,6 +30,7 @@
       "enable": true,
       "domains": [
         "api.openai.com",
+        "generativelanguage.googleapis.com",
         "discord.com",
         "discordapp.com",
         "hooks.slack.com"
@@ -44,10 +45,28 @@
         "helpText": "Per-subreddit OpenAI API key."
       },
       "spoilerLlmModel": {
-        "type": "string",
+        "type": "select",
         "label": "Spoiler LLM Model",
-        "helpText": "OpenAI chat model name, e.g. gpt-4o-mini.",
+        "helpText": "Select the model to use for spoiler classification.",
+        "options": [
+          { "label": "OpenAI - gpt-4o-mini", "value": "gpt-4o-mini" },
+          { "label": "OpenAI - gpt-4o", "value": "gpt-4o" },
+          { "label": "OpenAI - gpt-4-turbo", "value": "gpt-4-turbo" },
+          { "label": "Gemini - 2.0 Flash", "value": "gemini-2.0-flash" },
+          { "label": "Gemini - 1.5 Pro", "value": "gemini-1.5-pro" },
+          { "label": "Gemini - 1.5 Flash", "value": "gemini-1.5-flash" }
+        ],
         "defaultValue": "gpt-4o-mini"
+      },
+      "spoilerLlmProvider": {
+        "type": "select",
+        "label": "Spoiler LLM Provider",
+        "helpText": "Choose which LLM provider to use for spoiler classification.",
+        "options": [
+          { "label": "OpenAI", "value": "openai" },
+          { "label": "Gemini (Google)", "value": "gemini" }
+        ],
+        "defaultValue": "openai"
       },
       "alertMode": {
         "type": "select",

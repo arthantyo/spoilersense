@@ -484,76 +484,10 @@ const buildCandidateContents = (
 const isSevereDecision = (decision: SpoilerDecision): boolean =>
   decision.risk_level === 'HIGH' || decision.recommended_action === 'remove';
 
-const callLlm = async (
-  content: AnalyzableContent,
-  apiKey: string,
-  model: string
-): Promise<SpoilerDecision> => {
-  const schema = {
-    risk_level: 'LOW | MEDIUM | HIGH',
-    spoiler_type:
-      'none | hint | episode_spoiler | character_death | major_plot',
-    visibility_risk: 'low | medium | high',
-    recommended_action:
-      'allow | warn_user | collapse | send_to_modqueue | remove',
-    reasoning: 'short explanation',
-  };
-
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model,
-      temperature: 0,
-      messages: [
-        {
-          role: 'system',
-          content:
-            'You are a Reddit spoiler moderation classifier. Return JSON only, no markdown. Treat speculation, theories, and predictions as non-spoilers unless the text states confirmed plot details.',
-        },
-        {
-          role: 'user',
-          content: JSON.stringify({
-            task: 'Classify spoiler risk for this Reddit content.',
-            schema,
-            content: {
-              kind: content.kind,
-              subredditName: content.subredditName,
-              title: content.title,
-              body: content.body,
-            },
-            policy: [
-              'If uncertain, choose the safer of two neighboring levels.',
-              'Use remove only for severe explicit spoilers or repeated direct reveal style text.',
-              'Use send_to_modqueue for medium/high visibility risk spoilers.',
-              'If the text is framed as a theory, prediction, or guess, do not classify it as a spoiler unless it reveals confirmed details.',
-            ],
-          }),
-        },
-      ],
-      response_format: { type: 'json_object' },
-    }),
-  });
-
-  if (!response.ok) {
-    throw new Error(`LLM request failed with status ${response.status}`);
-  }
-
-  const payload = (await response.json()) as {
-    choices?: Array<{ message?: { content?: string } }>;
-  };
-
-  const raw = payload.choices?.[0]?.message?.content ?? '';
-
-  if (!raw.trim()) {
-    throw new Error('LLM response did not contain output content.');
-  }
-
-  return coerceDecision(parseJsonObject(raw));
-};
+// `callLlm` is implemented in `src/core/llmProvider.ts` so the app can
+// switch between OpenAI and Gemini providers via the `spoilerLlmProvider`
+// subreddit setting. That implementation returns the raw model string
+// which we parse and coerce into a `SpoilerDecision` where needed.
 
 const getNormalizedAction = (
   decision: SpoilerDecision,
@@ -579,7 +513,7 @@ export const analyzeSpoilerRisk = async (
 ): Promise<SpoilerDecision> => {
   const apiKey = (await settings.get<string>('spoilerLlmApiKey'))?.trim();
   const model =
-    (await settings.get<string>('spoilerLlmModel'))?.trim() || 'gpt-4o-mini';
+    (await settings.get<string[]>('spoilerLlmModel'))?.[0] || 'gpt-4o-mini';
 
   const title = normalizeTitleForAnalysis(content.title);
   const body = content.body ?? '';
@@ -615,7 +549,9 @@ export const analyzeSpoilerRisk = async (
     singleCandidate.body.length <= MAX_LLM_EXCERPT_CHARS
   ) {
     try {
-      const llmDecision = await callLlm(singleCandidate, apiKey, model);
+      const { callLlm } = await import('./llmProvider');
+      const raw = await callLlm(singleCandidate, apiKey, model);
+      const llmDecision = coerceDecision(parseJsonObject(raw));
       return {
         ...llmDecision,
         recommended_action: getNormalizedAction(llmDecision, content.kind),
@@ -652,7 +588,9 @@ export const analyzeSpoilerRisk = async (
     }
 
     try {
-      const llmDecision = await callLlm(candidate, apiKey, model);
+      const { callLlm } = await import('./llmProvider');
+      const raw = await callLlm(candidate, apiKey, model);
+      const llmDecision = coerceDecision(parseJsonObject(raw));
       const normalizedDecision = {
         ...llmDecision,
         recommended_action: getNormalizedAction(llmDecision, content.kind),
