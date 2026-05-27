@@ -97,6 +97,7 @@ const maybeNotifyMods = async (props: {
 
   const shouldUseModmail = alertMode === 'modmail' || alertMode === 'both';
   const shouldUseDiscord = alertMode === 'discord' || alertMode === 'both';
+  const shouldUseSlack = alertMode === 'slack';
 
   // Discord webhook is a string in the settings schema; coerce only from string.
   const rawDiscordWebhook = await settings.get('alertDiscordWebhookUrl');
@@ -104,6 +105,9 @@ const maybeNotifyMods = async (props: {
     typeof rawDiscordWebhook === 'string'
       ? rawDiscordWebhook.trim()
       : undefined;
+  const rawSlackWebhook = await settings.get('alertSlackWebhookUrl');
+  const slackWebhookUrl =
+    typeof rawSlackWebhook === 'string' ? rawSlackWebhook.trim() : undefined;
 
   const alertBody = buildModAlertMarkdown(props);
 
@@ -114,7 +118,7 @@ const maybeNotifyMods = async (props: {
     `[SpoilerSenser] alertMode: ${String(alertMode)}, type: ${typeof alertMode}`
   );
   console.log(
-    `[SpoilerSenser] shouldUseModmail: ${shouldUseModmail}, shouldUseDiscord: ${shouldUseDiscord}, discordWebhookUrl: ${String(discordWebhookUrl)}`
+    `[SpoilerSenser] shouldUseModmail: ${shouldUseModmail}, shouldUseDiscord: ${shouldUseDiscord}, shouldUseSlack: ${shouldUseSlack}, discordWebhookUrl: ${String(discordWebhookUrl)}, slackWebhookUrl: ${String(slackWebhookUrl)}`
   );
   console.log(
     `[SpoilerSenser] subredditId: ${String(props.subredditId)}, isT5: ${Boolean(
@@ -153,6 +157,12 @@ const maybeNotifyMods = async (props: {
     );
   }
 
+  if (shouldUseSlack && !slackWebhookUrl) {
+    console.warn(
+      'SpoilerSenser alertMode includes Slack, but alertSlackWebhookUrl is not configured.'
+    );
+  }
+
   if (shouldUseDiscord && discordWebhookUrl) {
     await fetch(discordWebhookUrl, {
       method: 'POST',
@@ -174,6 +184,18 @@ const maybeNotifyMods = async (props: {
                   : 5763719,
           },
         ],
+      }),
+    });
+  }
+
+  if (shouldUseSlack && slackWebhookUrl) {
+    await fetch(slackWebhookUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        text: alertBody,
       }),
     });
   }
@@ -232,6 +254,12 @@ triggers.post('/on-post-create', async (c) => {
     }
 
     if (post.removed || post.spoiler) {
+      return c.json<TriggerResponse>({ status: 'success' }, 200);
+    }
+
+    // Skip detection if post is already wrapped in spoiler tags >!...!<
+    const postBodyTrimmed = (post.body || '').trim();
+    if (/^>!.*!<$/s.test(postBodyTrimmed)) {
       return c.json<TriggerResponse>({ status: 'success' }, 200);
     }
 
@@ -305,6 +333,17 @@ triggers.post('/on-comment-create', async (c) => {
     return c.json<TriggerResponse>({ status: 'success' }, 200);
   }
 
+  // skip if the comment is created in a post that is already marked as spoiler!
+  const postId = input.post?.id;
+  if (!postId || !isT3(postId)) {
+    return c.json<TriggerResponse>({ status: 'success' }, 200);
+  }
+
+  const post = await reddit.getPostById(postId);
+  if (post.spoiler) {
+    return c.json<TriggerResponse>({ status: 'success' }, 200);
+  }
+
   try {
     const comment = await reddit.getCommentById(commentId);
     if (await isAppAuthored(comment.authorName, comment.body)) {
@@ -312,6 +351,12 @@ triggers.post('/on-comment-create', async (c) => {
     }
 
     if (comment.removed) {
+      return c.json<TriggerResponse>({ status: 'success' }, 200);
+    }
+
+    // Skip detection if comment is already wrapped in spoiler tags >!...!<
+    const commentBodyTrimmed = comment.body.trim();
+    if (/^>!.*!<$/s.test(commentBodyTrimmed)) {
       return c.json<TriggerResponse>({ status: 'success' }, 200);
     }
 
@@ -339,18 +384,22 @@ triggers.post('/on-comment-create', async (c) => {
         break;
       case 'remove':
         await comment.remove(false);
+        await comment.addRemovalNote({
+          modNote: `Removed by SpoilerSenser because of high spoiler risk.`,
+          reasonId: '',
+        });
         break;
       case 'allow':
       default:
         break;
     }
 
-    if (decision.risk_level !== 'LOW') {
-      const post = await reddit.getPostById(comment.postId);
-      if (!post.spoiler) {
-        await post.markAsSpoiler();
-      }
-    }
+    // if (decision.risk_level !== 'LOW') {
+    //   const post = await reddit.getPostById(comment.postId);
+    //   if (!post.spoiler) {
+    //     await post.markAsSpoiler();
+    //   }
+    // }
 
     await maybeNotifyMods({
       subredditId: comment.subredditId,

@@ -28,7 +28,12 @@
     "reddit": true,
     "http": {
       "enable": true,
-      "domains": ["api.openai.com", "discord.com", "discordapp.com"]
+      "domains": [
+        "api.openai.com",
+        "discord.com",
+        "discordapp.com",
+        "hooks.slack.com"
+      ]
     }
   },
   "settings": {
@@ -58,6 +63,10 @@
             "value": "discord"
           },
           {
+            "label": "Slack only",
+            "value": "slack"
+          },
+          {
             "label": "Both Modmail and Discord",
             "value": "both"
           }
@@ -68,6 +77,11 @@
         "type": "string",
         "label": "Discord webhook URL",
         "helpText": "Per-subreddit Discord webhook for spoiler alerts (used in discord/both modes)."
+      },
+      "alertSlackWebhookUrl": {
+        "type": "string",
+        "label": "Slack webhook URL",
+        "helpText": "Per-subreddit Slack incoming webhook for spoiler alerts (used in slack mode)."
       }
     }
   },

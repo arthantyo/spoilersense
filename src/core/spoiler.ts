@@ -111,32 +111,47 @@ const coerceDecision = (value: unknown): SpoilerDecision => {
 
 const getHeuristicDecision = (content: AnalyzableContent): SpoilerDecision => {
   const corpus = `${content.title ?? ''}\n${content.body}`.toLowerCase();
-  const hardSignals = [
+  const speculative = isSpeculativeLanguage(corpus);
+  const confirmed = isConfirmedSpoilerLanguage(corpus);
+  const deathRevealSignals = [
     'dies',
+    'die',
     'death',
+    'dead',
     'killed',
-    'ending',
-    'final scene',
-    'post credit',
-    'plot twist',
-    'final boss',
-    'betrays',
-    'identity reveal',
+    'kill',
+    'murdered',
+    'assassinated',
+    'slain',
   ];
-  const mediumSignals = [
-    'spoiler',
-    'episode',
-    'chapter',
-    'leak',
-    'ending explained',
-    'major reveal',
-    'after credits',
-  ];
-
-  const hardHits = hardSignals.filter((word) => corpus.includes(word)).length;
-  const mediumHits = mediumSignals.filter((word) =>
+  const hasDeathReveal = deathRevealSignals.some((term) =>
+    corpus.includes(term)
+  );
+  const hardHits = bodySignals.hard.filter((word) =>
     corpus.includes(word)
   ).length;
+  const mediumHits = bodySignals.medium.filter((word) =>
+    corpus.includes(word)
+  ).length;
+
+  if (confirmed && hasDeathReveal) {
+    return {
+      risk_level: 'HIGH',
+      spoiler_type: 'character_death',
+      visibility_risk: 'high',
+      recommended_action: 'remove',
+      reasoning:
+        'Confirmed first-hand death reveal detected, so the content was marked as an explicit spoiler for removal.',
+    };
+  }
+
+  if (speculative && !confirmed && hardHits <= 1 && mediumHits <= 1) {
+    return {
+      ...DEFAULT_DECISION,
+      reasoning:
+        'Speculative or predictive language detected, so this was treated as a theory rather than a spoiler.',
+    };
+  }
 
   if (hardHits >= 2) {
     const deathSignals = ['dies', 'death', 'killed'];
@@ -166,6 +181,309 @@ const getHeuristicDecision = (content: AnalyzableContent): SpoilerDecision => {
   return DEFAULT_DECISION;
 };
 
+const aggregateDecisions = (decisions: SpoilerDecision[]): SpoilerDecision => {
+  if (!decisions || decisions.length === 0) return DEFAULT_DECISION;
+
+  const riskScore: Record<RiskLevel, number> = { LOW: 0, MEDIUM: 1, HIGH: 2 };
+  const visibilityScore: Record<VisibilityRisk, number> = {
+    low: 0,
+    medium: 1,
+    high: 2,
+  };
+  const actionScore: Record<RecommendedAction, number> = {
+    allow: 0,
+    warn_user: 1,
+    collapse: 2,
+    send_to_modqueue: 3,
+    remove: 4,
+  };
+
+  // pick highest risk
+  let bestRisk: RiskLevel = 'LOW';
+  let bestVisibility: VisibilityRisk = 'low';
+  let bestAction: RecommendedAction = 'allow';
+  const typeCounts: Partial<Record<SpoilerType, number>> = {};
+  const reasoningSet = new Set<string>();
+
+  for (const d of decisions) {
+    if (riskScore[d.risk_level] > riskScore[bestRisk]) bestRisk = d.risk_level;
+    if (visibilityScore[d.visibility_risk] > visibilityScore[bestVisibility])
+      bestVisibility = d.visibility_risk;
+    if (actionScore[d.recommended_action] > actionScore[bestAction])
+      bestAction = d.recommended_action;
+    typeCounts[d.spoiler_type] = (typeCounts[d.spoiler_type] || 0) + 1;
+    if (d.reasoning) reasoningSet.add(d.reasoning.trim());
+  }
+
+  // pick most frequent / most severe spoiler type
+  const typePriority: SpoilerType[] = [
+    'character_death',
+    'major_plot',
+    'episode_spoiler',
+    'hint',
+    'none',
+  ];
+  let chosenType: SpoilerType = 'none';
+  for (const t of typePriority) {
+    if (typeCounts[t]) {
+      chosenType = t;
+      break;
+    }
+  }
+
+  const combinedReasoning = clampReasoning(
+    Array.from(reasoningSet).join(' | ')
+  );
+
+  return {
+    risk_level: bestRisk,
+    spoiler_type: chosenType,
+    visibility_risk: bestVisibility,
+    recommended_action: bestAction,
+    reasoning: combinedReasoning,
+  };
+};
+
+const MAX_POST_TITLE_CHARS = 300;
+const MAX_POST_BODY_CHARS = 40000;
+const MAX_COMMENT_BODY_CHARS = 3000;
+const MAX_LLM_EXCERPT_CHARS = 1800;
+const MAX_LLM_CANDIDATES = 5;
+
+const normalizeTitleForAnalysis = (title?: string): string | undefined => {
+  if (!title) {
+    return undefined;
+  }
+
+  return title.slice(0, MAX_POST_TITLE_CHARS);
+};
+
+const getBodyChunkSize = (contentKind: AnalyzableContent['kind']): number =>
+  contentKind === 'post' ? MAX_POST_BODY_CHARS : MAX_COMMENT_BODY_CHARS;
+
+const bodySignals = {
+  hard: [
+    'dies',
+    'die',
+    'death',
+    'dead',
+    'killed',
+    'kill',
+    'murder',
+    'murdered',
+    'assassinated',
+    'slain',
+    'shot',
+    'stabbed',
+    'beheaded',
+    'executed',
+    'ending',
+    'finale',
+    'season finale',
+    'series finale',
+    'final scene',
+    'last scene',
+    'post credit',
+    'post-credits',
+    'mid credits',
+    'mid-credits',
+    'plot twist',
+    'twist ending',
+    'the ending is',
+    'it was all a dream',
+    'final boss',
+    'main villain',
+    'true villain',
+    'betrays',
+    'betrayed',
+    'traitor',
+    'identity reveal',
+    'secret identity',
+    'identity is',
+    'the killer is',
+    'who dies',
+    'who killed',
+    'revealed to be',
+    'is revealed',
+  ],
+  medium: [
+    'spoiler',
+    'spoilers',
+    'spoiler warning',
+    'episode',
+    'episodes',
+    'chapter',
+    'chapters',
+    'volume',
+    'leak',
+    'leaks',
+    'leaked',
+    'rumor',
+    'rumour',
+    'confirmed',
+    'confirmation',
+    'ending explained',
+    'explained ending',
+    'major reveal',
+    'big reveal',
+    'reveal',
+    'after credits',
+    'post credits scene',
+    'post-credits scene',
+    'credit scene',
+    'scene after credits',
+    'season ending',
+    'series ending',
+    'final episode',
+    'series finale',
+    'season finale',
+    'cliffhanger',
+    'identity',
+    'killer',
+    'dies in',
+    'death scene',
+  ],
+} as const;
+
+const speculationSignals = [
+  'prediction',
+  'predictions',
+  'theory',
+  'theories',
+  'speculation',
+  'speculative',
+  'guess',
+  'guessing',
+  'might',
+  'may',
+  'could',
+  'probably',
+  'possibly',
+  'seems like',
+  'i think',
+  'i bet',
+  'my guess',
+  'next season',
+  'future season',
+  'next episode',
+  'eventually',
+] as const;
+
+const isSpeculativeLanguage = (corpus: string): boolean =>
+  speculationSignals.some((term) => corpus.includes(term));
+
+const confirmationSignals = [
+  'i watched it',
+  'i saw it',
+  'i saw this',
+  'i watched this',
+  'confirmed',
+  'actually dies',
+  'actually dies in',
+  'he dies',
+  'she dies',
+  'they die',
+  'it happens',
+  'this happens',
+  'that happens',
+  'in the episode',
+  'in the movie',
+  'in the finale',
+  'spoiler',
+  'spoilers',
+  'leaked',
+  'leak',
+] as const;
+
+const isConfirmedSpoilerLanguage = (corpus: string): boolean =>
+  confirmationSignals.some((term) => corpus.includes(term));
+
+const extractSignalHits = (
+  text: string
+): Array<{ index: number; term: string }> => {
+  const lowerText = text.toLowerCase();
+  const hits: Array<{ index: number; term: string }> = [];
+
+  for (const term of [...bodySignals.hard, ...bodySignals.medium]) {
+    let index = lowerText.indexOf(term);
+    while (index >= 0) {
+      hits.push({ index, term });
+      index = lowerText.indexOf(term, index + term.length);
+    }
+  }
+
+  return hits.sort(
+    (left, right) =>
+      left.index - right.index || left.term.length - right.term.length
+  );
+};
+
+const buildExcerpt = (text: string, center: number, length: number): string => {
+  if (text.length <= length) {
+    return text;
+  }
+
+  const half = Math.floor(length / 2);
+  const start = Math.max(0, Math.min(center - half, text.length - length));
+  return text.slice(start, start + length);
+};
+
+const buildSampleCenters = (length: number): number[] => {
+  if (length <= MAX_LLM_EXCERPT_CHARS) {
+    return [Math.floor(length / 2)];
+  }
+
+  const quarters = [0, 0.25, 0.5, 0.75, 1]
+    .map((fraction) => Math.floor(length * fraction))
+    .filter(
+      (center, index, centers) => index === 0 || center !== centers[index - 1]
+    );
+
+  return quarters;
+};
+
+const buildCandidateContents = (
+  content: AnalyzableContent
+): AnalyzableContent[] => {
+  const body = content.body.slice(0, getBodyChunkSize(content.kind));
+  const title = normalizeTitleForAnalysis(content.title);
+  const baseContent: AnalyzableContent = {
+    kind: content.kind,
+    body,
+    ...(title ? { title } : {}),
+    ...(content.subredditName ? { subredditName: content.subredditName } : {}),
+  };
+
+  if (body.length <= MAX_LLM_EXCERPT_CHARS) {
+    return [baseContent];
+  }
+
+  const candidates: AnalyzableContent[] = [];
+  const signalHits = extractSignalHits(body);
+  const centers = new Set<number>(buildSampleCenters(body.length));
+
+  for (const hit of signalHits.slice(0, MAX_LLM_CANDIDATES)) {
+    centers.add(hit.index + Math.floor(hit.term.length / 2));
+  }
+
+  for (const center of centers) {
+    const excerpt = buildExcerpt(body, center, MAX_LLM_EXCERPT_CHARS);
+    candidates.push({
+      ...baseContent,
+      body: excerpt,
+    });
+
+    if (candidates.length >= MAX_LLM_CANDIDATES) {
+      break;
+    }
+  }
+
+  return candidates.length > 0 ? candidates : [baseContent];
+};
+
+const isSevereDecision = (decision: SpoilerDecision): boolean =>
+  decision.risk_level === 'HIGH' || decision.recommended_action === 'remove';
+
 const callLlm = async (
   content: AnalyzableContent,
   apiKey: string,
@@ -194,7 +512,7 @@ const callLlm = async (
         {
           role: 'system',
           content:
-            'You are a Reddit spoiler moderation classifier. Return JSON only, no markdown.',
+            'You are a Reddit spoiler moderation classifier. Return JSON only, no markdown. Treat speculation, theories, and predictions as non-spoilers unless the text states confirmed plot details.',
         },
         {
           role: 'user',
@@ -211,6 +529,7 @@ const callLlm = async (
               'If uncertain, choose the safer of two neighboring levels.',
               'Use remove only for severe explicit spoilers or repeated direct reveal style text.',
               'Use send_to_modqueue for medium/high visibility risk spoilers.',
+              'If the text is framed as a theory, prediction, or guess, do not classify it as a spoiler unless it reveals confirmed details.',
             ],
           }),
         },
@@ -262,7 +581,18 @@ export const analyzeSpoilerRisk = async (
   const model =
     (await settings.get<string>('spoilerLlmModel'))?.trim() || 'gpt-4o-mini';
 
-  const byHeuristic = getHeuristicDecision(content);
+  const title = normalizeTitleForAnalysis(content.title);
+  const body = content.body ?? '';
+  const analysisContent: AnalyzableContent = {
+    kind: content.kind,
+    body,
+    ...(title ? { title } : {}),
+    ...(content.subredditName ? { subredditName: content.subredditName } : {}),
+  };
+
+  const byHeuristic = getHeuristicDecision(analysisContent);
+  const candidates = buildCandidateContents(analysisContent);
+
   if (!apiKey) {
     return {
       ...byHeuristic,
@@ -271,20 +601,83 @@ export const analyzeSpoilerRisk = async (
     };
   }
 
-  try {
-    const llmDecision = await callLlm(content, apiKey, model);
-    return {
-      ...llmDecision,
-      recommended_action: getNormalizedAction(llmDecision, content.kind),
-    };
-  } catch (error) {
-    console.error('Spoiler LLM failed, using heuristic classifier.', error);
+  if (byHeuristic.risk_level === 'HIGH') {
     return {
       ...byHeuristic,
       recommended_action: getNormalizedAction(byHeuristic, content.kind),
-      reasoning: `${byHeuristic.reasoning} (LLM unavailable, fallback mode.)`,
     };
   }
+
+  const singleCandidate = candidates[0];
+  if (
+    candidates.length === 1 &&
+    singleCandidate &&
+    singleCandidate.body.length <= MAX_LLM_EXCERPT_CHARS
+  ) {
+    try {
+      const llmDecision = await callLlm(singleCandidate, apiKey, model);
+      return {
+        ...llmDecision,
+        recommended_action: getNormalizedAction(llmDecision, content.kind),
+      };
+    } catch (error) {
+      console.error('Spoiler LLM failed, using heuristic classifier.', error);
+      return {
+        ...byHeuristic,
+        recommended_action: getNormalizedAction(byHeuristic, content.kind),
+        reasoning: `${byHeuristic.reasoning} (LLM unavailable, fallback mode.)`,
+      };
+    }
+  }
+
+  const decisions: SpoilerDecision[] = [];
+  for (const candidate of candidates) {
+    const heuristic = getHeuristicDecision(candidate);
+    if (isSevereDecision(heuristic)) {
+      return {
+        ...heuristic,
+        recommended_action: getNormalizedAction(heuristic, content.kind),
+      };
+    }
+
+    if (
+      heuristic.risk_level === 'LOW' &&
+      candidate.body.length > MAX_LLM_EXCERPT_CHARS
+    ) {
+      decisions.push({
+        ...heuristic,
+        recommended_action: getNormalizedAction(heuristic, content.kind),
+      });
+      continue;
+    }
+
+    try {
+      const llmDecision = await callLlm(candidate, apiKey, model);
+      const normalizedDecision = {
+        ...llmDecision,
+        recommended_action: getNormalizedAction(llmDecision, content.kind),
+      };
+
+      decisions.push(normalizedDecision);
+
+      if (isSevereDecision(normalizedDecision)) {
+        return normalizedDecision;
+      }
+    } catch (error) {
+      console.error('Spoiler LLM failed, using heuristic classifier.', error);
+      decisions.push({
+        ...heuristic,
+        recommended_action: getNormalizedAction(heuristic, content.kind),
+        reasoning: `${heuristic.reasoning} (LLM unavailable, fallback mode.)`,
+      });
+    }
+  }
+
+  const aggregated = aggregateDecisions([byHeuristic, ...decisions]);
+  return {
+    ...aggregated,
+    recommended_action: getNormalizedAction(aggregated, content.kind),
+  };
 };
 
 export const formatSpoilerDecision = (decision: SpoilerDecision): string =>

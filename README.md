@@ -22,7 +22,7 @@ Spoiler Senser is a Devvit moderation app that detects likely spoilers of Anime,
 - Marks risky posts as spoiler.
 - Warns users by replying to suspicious content.
 - Sends risky content to mod queue using filter actions.
-- Alerts moderators via Modmail and/or Discord webhook with the classifier JSON.
+- Alerts moderators via Modmail, Discord webhook, or Slack incoming webhook with the classifier JSON.
 
 ## Setup
 
@@ -32,10 +32,24 @@ Spoiler Senser is a Devvit moderation app that detects likely spoilers of Anime,
 
 - `spoilerLlmApiKey` (per-subreddit OpenAI API key)
 - `spoilerLlmModel` (default: `gpt-4o-mini`)
-  - `alertMode` (`modmail` | `discord` | `both`, default: `both`)
+  - `alertMode` (`modmail` | `discord` | `slack` | `both`, default: `both`)
   - `alertDiscordWebhookUrl` (per-subreddit webhook; required for Discord modes)
+  - `alertSlackWebhookUrl` (per-subreddit webhook; required for Slack mode)
 
 If no API key is configured, Spoiler Senser still runs in fallback heuristic mode.
+
+# Heuristics
+
+- Primary approach: Heuristic-first; only call the LLM on short excerpts when heuristics are uncertain or hits appear.
+- Quick scan: A cheap full-body heuristic scan looks for strong signals (death/reveals) and weaker signals (ending/twist/lists).
+- Signal categories: Hard signals (explicit reveal words like "dies", "killed", "confirmed dead", character names + "was killed") and Medium signals (ending, finale, twist, major reveal, plot summary).
+- Speculation handling: If language is speculative (predictions, "might", "probably", "I think") and no confirmation signals present, the heuristic downgrades to LOW risk to avoid false positives.
+- Confirmation detection: Phrases that indicate direct experience or verification ("I watched it", "it happened", "confirmed", "saw") flip the decision—when combined with death/reveal signals this triggers HIGH risk and remove.
+- Excerpt selection: For long content we extract up to MAX_LLM_CANDIDATES (default 5) excerpts prioritized by signal hits, then sampled windows—each excerpt is capped (MAX_LLM_EXCERPT_CHARS, default ~1800).
+- LLM usage: The LLM runs only on those candidate excerpts (and only if a subreddit API key is configured). It returns a structured SpoilerDecision per excerpt.
+- Aggregation: We aggregate chunk/excerpt decisions by taking the most severe risk_level / visibility_risk / recommended_action and merging reasoning; spoiler type chosen by priority.
+- Normalization & platform limits: Final recommended_action is normalized for post vs comment contexts (e.g., different visibility actions). We respect limits: title 300 chars, post body 40000, comment fallback used for shorter thresholds.
+- Fast-paths & efficiency: Pure-speculation -> LOW short-circuit; explicit-confirmation + reveal -> immediate HIGH/remove short-circuit; sampling plus signal-priority keeps LLM calls low.
 
 ## Fetch Domains
 
@@ -44,3 +58,4 @@ The following domains are requested for this app:
 - `api.openai.com` - Used by the server-side spoiler classifier to call OpenAI chat completions.
 - `discord.com` - Used to send moderator alert webhooks when `alertMode` includes Discord.
 - `discordapp.com` - Backward-compatible Discord webhook host support.
+- `hooks.slack.com` - Used to send moderator alert webhooks when `alertMode` includes Slack.
