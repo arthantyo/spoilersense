@@ -50,3 +50,8 @@ If no API key is configured, Spoiler Senser still runs in fallback heuristic mod
 - Aggregation: We aggregate chunk/excerpt decisions by taking the most severe risk_level / visibility_risk / recommended_action and merging reasoning; spoiler type chosen by priority.
 - Normalization & platform limits: Final recommended_action is normalized for post vs comment contexts (e.g., different visibility actions). We respect limits: title 300 chars, post body 40000, comment fallback used for shorter thresholds.
 - Fast-paths & efficiency: Pure-speculation -> LOW short-circuit; explicit-confirmation + reveal -> immediate HIGH/remove short-circuit; sampling plus signal-priority keeps LLM calls low.
+
+## Legal
+
+- [Terms and Conditions](TERMS_AND_CONDITIONS.md)
+- [Privacy Policy](PRIVACY_POLICY.md)
